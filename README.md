@@ -12,12 +12,12 @@ Currently only supports the mode of Obsidian Full Calendar that stores each even
 
 The following day in Obsidian Full Calendar produces this output using `obsidian-calendar-summary`:
 
-![img/full-calendar.png]
-![img/calendar-summary.png]
+![Image of obsidian-full-calendar showing a list of events](img/full-calendar.png)
+![Image of obsidian-calendar-summary listing the same events in the terminal](img/calendar-summary.png)
 
 I like to add `obsidian-calendar-summary` to the end of my `.bashrc` along with [todo week all](https://github.com/Jachdich/todo-rs) to show my events today and my deadlines this week at the top of each terminal.
 
-![img/top.png]
+![Image of the top of my terminal, showing an ASCII art fish, the output of `todo-rs`, and the output of `obsidian-calendar-summary`](img/top.png)
 
 ## Todo
 
