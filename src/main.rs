@@ -170,7 +170,7 @@ fn parse_cal_file(contents: &str) -> Result<Event, Box<dyn std::error::Error>> {
         Ok(Event::Once {
             title: get_one("title")?.into(),
             begin: get_one("startTime")?.parse()?,
-            end: get_one("startTime")?.parse()?,
+            end: get_one("endTime")?.parse()?,
             day: get_one("date")?.parse()?,
         })
     } else {
