@@ -17,22 +17,29 @@ enum Event {
         end_recur: Option<NaiveDate>,
         recur_days: Vec<chrono::Weekday>,
     },
+    AllDay {
+        title: String,
+        begin_date: NaiveDate,
+        end_date: NaiveDate,
+    },
 }
 
 impl Event {
-    fn begin(&self) -> &NaiveTime {
-        match self {
-            Self::Once { begin, .. } | Self::Recurring { begin, .. } => begin,
-        }
-    }
-    fn end(&self) -> &NaiveTime {
-        match self {
-            Self::Once { end, .. } | Self::Recurring { end, .. } => end,
-        }
-    }
+    // fn begin(&self) -> &NaiveTime {
+    //     match self {
+    //         Self::Once { begin, .. } | Self::Recurring { begin, .. } => begin,
+    //     }
+    // }
+    // fn end(&self) -> &NaiveTime {
+    //     match self {
+    //         Self::Once { end, .. } | Self::Recurring { end, .. } => end,
+    //     }
+    // }
     fn title(&self) -> &str {
         match self {
-            Self::Once { title, .. } | Self::Recurring { title, .. } => title,
+            Self::Once { title, .. }
+            | Self::Recurring { title, .. }
+            | Self::AllDay { title, .. } => title,
         }
     }
 }
@@ -40,30 +47,57 @@ impl Event {
 impl std::fmt::Display for Event {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let now = chrono::Local::now().naive_local().time();
-        let delta = *self.begin() - now;
-        let delta_text = if delta.num_minutes() < 60 {
-            format!(
-                "({} mins{})",
-                delta.num_minutes(),
-                if delta.num_minutes() != 1 { "s" } else { "" }
-            )
-        } else {
-            format!(
-                "({} hour{})",
-                delta.num_hours(),
-                if delta.num_hours() != 1 { "s" } else { "" }
-            )
-        };
-        write!(
-            f,
-            "{:02}:{:02} - {:02}:{:02} {:<10} | {}",
-            self.begin().hour(),
-            self.begin().minute(),
-            self.end().hour(),
-            self.end().minute(),
-            delta_text,
-            self.title()
-        )
+
+        match self {
+            Self::Once { begin, end, .. } | Self::Recurring { begin, end, .. } => {
+                let delta = *begin - now;
+                let delta_text = if delta.num_minutes() < 0 {
+                    "(Now)".into()
+                } else if delta.num_minutes() < 60 {
+                    format!(
+                        "({} min{})",
+                        delta.num_minutes(),
+                        if delta.num_minutes() != 1 { "s" } else { "" }
+                    )
+                } else {
+                    format!(
+                        "({} hour{})",
+                        delta.num_hours(),
+                        if delta.num_hours() != 1 { "s" } else { "" }
+                    )
+                };
+                write!(
+                    f,
+                    "{:02}:{:02} - {:02}:{:02} {:<10} | {}",
+                    begin.hour(),
+                    begin.minute(),
+                    end.hour(),
+                    end.minute(),
+                    delta_text,
+                    self.title()
+                )
+            }
+            Self::AllDay {
+                title,
+                begin_date,
+                end_date,
+            } => {
+                if (*end_date - *begin_date).num_days() == 1 {
+                    write!(f, "Today                    | {}", title)
+                } else {
+                    write!(
+                        f,
+                        "{} - {}          | {}",
+                        begin_date.format("%b %d"),
+                        end_date
+                            .checked_sub_days(chrono::Days::new(1))
+                            .unwrap() // this is unlikely to go past the limits of what chrono can handle as a date
+                            .format("%b %d"),
+                        title
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -154,19 +188,29 @@ fn parse_cal_file(contents: &str) -> Result<Event, Box<dyn std::error::Error>> {
     let get_one = |name| {
         header_values
             .get(name)
-            .ok_or(CalError(format!("Has no '{}", name)))?
+            .ok_or(CalError(format!("Has no '{}'", name)))?
             .one()
             .ok_or(CalError(format!("'{}' is a list", name)))
     };
     let get_many = |name| {
         header_values
             .get(name)
-            .ok_or(CalError(format!("Has no '{}", name)))?
+            .ok_or(CalError(format!("Has no '{}'", name)))?
             .many()
             .ok_or(CalError(format!("'{}' is not a list", name)))
     };
 
-    if get_one("type").unwrap_or("single") == "single" {
+    if get_one("allDay").unwrap_or("false") == "true" {
+        Ok(Event::AllDay {
+            title: get_one("title")?.into(),
+            begin_date: get_one("date")?.parse()?,
+            end_date: if let Ok(end_date) = get_one("endDate") {
+                end_date.parse()?
+            } else {
+                get_one("date")?.parse()?
+            },
+        })
+    } else if get_one("type").unwrap_or("single") == "single" {
         Ok(Event::Once {
             title: get_one("title")?.into(),
             begin: get_one("startTime")?.parse()?,
@@ -233,22 +277,36 @@ fn get_valid_events() -> Result<Vec<Event>, Box<dyn std::error::Error>> {
         .into_iter()
         .flatten()
         .filter(|event| match event {
-            Event::Once { day, begin, .. } => day == &now.date() && begin >= &now.time(),
+            Event::Once { day, end, .. } => day == &now.date() && end >= &now.time(),
             Event::Recurring {
                 begin_recur,
                 end_recur,
                 recur_days,
-                begin,
+                end,
                 ..
             } => {
                 recur_days.contains(&now.date().weekday())
                     && &now.date() >= begin_recur
                     && end_recur.map(|day| now.date() <= day).unwrap_or(true)
-                    && begin >= &now.time()
+                    && end >= &now.time()
             }
+            Event::AllDay {
+                begin_date,
+                end_date,
+                ..
+            } => &now.date() >= begin_date && &now.date() < end_date,
         })
         .collect();
-    events.sort_by(|a, b| a.begin().cmp(b.begin()));
+    events.sort_by(|a, b| match a {
+        // always put all day events at the top!
+        Event::Once { begin: a_begin, .. } | Event::Recurring { begin: a_begin, .. } => match b {
+            Event::Once { begin: b_begin, .. } | Event::Recurring { begin: b_begin, .. } => {
+                a_begin.cmp(b_begin)
+            }
+            Event::AllDay { .. } => std::cmp::Ordering::Greater,
+        },
+        Event::AllDay { .. } => std::cmp::Ordering::Less,
+    });
     Ok(events)
 }
 
